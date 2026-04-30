@@ -1,0 +1,12 @@
+torch==2.5.1
+transformers==5.5.3
+trl==1.1.0
+accelerate==1.13.0
+matplotlib==3.10.8
+scikit-learn==1.7.2
+scipy==1.15.3
+numpy==2.2.6
+pyyaml==6.0.3
+tokenizers==0.22.2
+datasets>=3.0.0
+tqdm>=4.66.0

@@ -1,0 +1,98 @@
+# CoT vs Memorization Leakage — experiment configuration
+
+# ----- Dataset -----
+dataset:
+  seed: 1234
+  n_train_problems: 8000
+  n_test_problems: 1000
+  templates: [add_chain, comparison, money, units]   # legacy field; the actual
+                                                     # template family is selected via
+                                                     # train.py --difficulty {easy,hard,mixed}
+  max_seq_len: 512
+
+# ----- Canaries -----
+canaries:
+  duplication_buckets: {1: 50, 4: 50, 16: 50, 64: 50}
+  n_holdout: 200
+  prefix_groups_for_extraction: [0, 1, 2, 3]   # 0 = only "Reference code: ZK-"
+
+# ----- Model presets -----
+models:
+  qwen3_0p6b:
+    hf_name: Qwen/Qwen3-0.6B-Base
+    lr: 5.0e-5
+    per_device_batch: 16
+    grad_accum: 2
+    grad_checkpointing: false
+  qwen3_1p7b:
+    hf_name: Qwen/Qwen3-1.7B-Base
+    lr: 2.0e-5
+    per_device_batch: 8
+    grad_accum: 4
+    grad_checkpointing: true
+
+# ----- Training -----
+# Matching strategy: BOTH conditions train for the same number of OPTIMIZER STEPS
+# (= same number of forward passes through canary-containing prompts). This is
+# the realistic practitioner comparison and isolates the effect of CoT *format*
+# on memorization, since both models see the canaries in the input the same
+# number of times. Matching by target-tokens instead would make answer-only run
+# for ~25x more epochs (since its targets are ~25x shorter), which is unrealistic
+# and would dominate any format effect.
+training:
+  precision: bf16
+  weight_decay: 0.1
+  betas: [0.9, 0.95]
+  eps: 1.0e-8
+  warmup_steps: 100
+  lr_schedule: constant_with_warmup
+  grad_clip: 1.0
+  num_epochs: 10                  # primary stopping criterion (~2500 steps at bs=32)
+  max_steps: 3000                 # safety cap
+  checkpoint_step_fractions:      # save at these fractions of total training
+    [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
+
+# ----- Experiment matrix -----
+# Phase 2 matrix (already complete). Phase 3 ablations are launched via the
+# scripts/run_*.sh orchestrators rather than this matrix list.
+matrix:
+  - {model: qwen3_0p6b, condition: answer, seed: 0}
+  - {model: qwen3_0p6b, condition: cot,    seed: 0}
+  - {model: qwen3_0p6b, condition: answer, seed: 1}
+  - {model: qwen3_0p6b, condition: cot,    seed: 1}
+  - {model: qwen3_0p6b, condition: answer, seed: 2}
+  - {model: qwen3_0p6b, condition: cot,    seed: 2}
+  - {model: qwen3_1p7b, condition: answer, seed: 0}
+  - {model: qwen3_1p7b, condition: cot,    seed: 0}
+
+# ----- Phase 3 ablation matrices -----
+# Each cell adds one new axis to the Phase 2 design.
+phase3:
+  hard:           # harder task templates (--difficulty hard)
+    seeds: [0, 1, 2]
+    conditions: [answer, cot]
+    model: qwen3_0p6b
+    run_suffix: hard
+  pii:            # human-readable PII canaries (--canary_format pii)
+    seeds: [0, 1, 2]
+    conditions: [answer, cot]
+    model: qwen3_0p6b
+    run_suffix: pii
+  maskprompt:     # negative control (--mask_prompt)
+    seeds: [0, 1, 2]
+    conditions: [answer, cot]
+    model: qwen3_0p6b
+    run_suffix: maskprompt
+  dp_eps8:        # DP-SGD with epsilon=8 (uses train_dp.py)
+    seeds: [0, 1, 2]
+    conditions: [answer, cot]
+    model: qwen3_0p6b
+    run_suffix: dp_eps8
+    target_epsilon: 8.0
+    max_grad_norm: 1.0
+
+# ----- Output -----
+output:
+  results_dir: results
+  checkpoints_dir: checkpoints
+  plots_dir: results/plots
